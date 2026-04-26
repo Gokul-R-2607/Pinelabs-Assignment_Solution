@@ -1,0 +1,318 @@
+{
+  "info": {
+    "name": "Pine Labs Payment Reconciliation",
+    "description": "API collection for payment reconciliation and settlement management",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Ingest Events",
+      "item": [
+        {
+          "name": "POST - Ingest Event (payment_initiated)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt-001\",\n  \"event_type\": \"payment_initiated\",\n  \"transaction_id\": \"tx-001\",\n  \"merchant_id\": \"merchant_001\",\n  \"merchant_name\": \"Tech Store\",\n  \"amount\": 5000.0,\n  \"currency\": \"INR\",\n  \"timestamp\": \"2026-04-26T10:00:00\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8000/events",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8000",
+              "path": ["events"]
+            }
+          }
+        },
+        {
+          "name": "POST - Ingest Event (payment_processed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt-002\",\n  \"event_type\": \"payment_processed\",\n  \"transaction_id\": \"tx-001\",\n  \"merchant_id\": \"merchant_001\",\n  \"merchant_name\": \"Tech Store\",\n  \"amount\": 5000.0,\n  \"currency\": \"INR\",\n  \"timestamp\": \"2026-04-26T10:15:00\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8000/events",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8000",
+              "path": ["events"]
+            }
+          }
+        },
+        {
+          "name": "POST - Ingest Event (settled)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt-003\",\n  \"event_type\": \"settled\",\n  \"transaction_id\": \"tx-001\",\n  \"merchant_id\": \"merchant_001\",\n  \"merchant_name\": \"Tech Store\",\n  \"amount\": 5000.0,\n  \"currency\": \"INR\",\n  \"timestamp\": \"2026-04-26T10:30:00\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8000/events",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8000",
+              "path": ["events"]
+            }
+          }
+        },
+        {
+          "name": "POST - Ingest Event (payment_failed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_id\": \"evt-004\",\n  \"event_type\": \"payment_failed\",\n  \"transaction_id\": \"tx-002\",\n  \"merchant_id\": \"merchant_002\",\n  \"merchant_name\": \"Retail Store\",\n  \"amount\": 3000.0,\n  \"currency\": \"INR\",\n  \"timestamp\": \"2026-04-26T11:00:00\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8000/events",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8000",
+              "path": ["events"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "List Transactions",
+      "item": [
+        {
+          "name": "GET - List All Transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8000/transactions",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8000",
+              "path": ["transactions"]
+            }
+          }
+        },
+        {
+          "name": "GET - List Transactions by Merchant",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8000/transactions?merchant_id=merchant_001",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8000",
+              "path": ["transactions"],
+              "query": [
+                {
+                  "key": "merchant_id",
+                  "value": "merchant_001"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET - List Transactions by Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8000/transactions?status=settled",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8000",
+              "path": ["transactions"],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "settled"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET - List Transactions with Date Range",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8000/transactions?start_date=2026-04-01T00:00:00&end_date=2026-04-30T23:59:59",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8000",
+              "path": ["transactions"],
+              "query": [
+                {
+                  "key": "start_date",
+                  "value": "2026-04-01T00:00:00"
+                },
+                {
+                  "key": "end_date",
+                  "value": "2026-04-30T23:59:59"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET - List Transactions with Pagination",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8000/transactions?page=1&size=10&sort_by=created_at&sort_order=desc",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8000",
+              "path": ["transactions"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "size",
+                  "value": "10"
+                },
+                {
+                  "key": "sort_by",
+                  "value": "created_at"
+                },
+                {
+                  "key": "sort_order",
+                  "value": "desc"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET - List with Combined Filters",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8000/transactions?merchant_id=merchant_001&status=settled&page=1&size=5&sort_by=amount&sort_order=desc",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8000",
+              "path": ["transactions"],
+              "query": [
+                {
+                  "key": "merchant_id",
+                  "value": "merchant_001"
+                },
+                {
+                  "key": "status",
+                  "value": "settled"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "size",
+                  "value": "5"
+                },
+                {
+                  "key": "sort_by",
+                  "value": "amount"
+                },
+                {
+                  "key": "sort_order",
+                  "value": "desc"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Fetch Transaction Details",
+      "item": [
+        {
+          "name": "GET - Transaction Detail by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8000/transactions/tx-001",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8000",
+              "path": ["transactions", "tx-001"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reconciliation Summary",
+      "item": [
+        {
+          "name": "GET - Reconciliation Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8000/reconciliation/summary",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8000",
+              "path": ["reconciliation", "summary"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reconciliation Discrepancies",
+      "item": [
+        {
+          "name": "GET - Reconciliation Discrepancies",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8000/reconciliation/discrepancies",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8000",
+              "path": ["reconciliation", "discrepancies"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
