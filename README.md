@@ -8,17 +8,16 @@
 
 - [Overview](#overview)
 - [Key Features](#key-features)
-- [System Architecture](#system-architecture)
 - [Technology Stack](#technology-stack)
-- [Quick Start](#quick-start)
+- [Quick Start with Docker Compose](#quick-start-with-docker-compose)
 - [API Endpoints](#api-endpoints)
 - [Database Schema](#database-schema)
-- [Usage Examples](#usage-examples)
-- [Testing & Validation](#testing--validation)
-- [Performance Benchmarks](#performance-benchmarks)
+- [Docker Compose Deployment](#docker-compose-deployment)
+- [AWS Deployment](#aws-deployment)
 - [Production Deployment](#production-deployment)
+- [Testing & Validation](#testing--validation)
 - [Troubleshooting](#troubleshooting)
-- [Contributing & Support](#contributing--support)
+- [Support & Maintenance](#support--maintenance)
 
 ---
 
@@ -124,63 +123,86 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed system design and [API_DOCUM
 
 ---
 
-## Quick Start
+## Quick Start with Docker Compose
 
-### 1. Prerequisites
+### Prerequisites
+
+- Docker Desktop installed and running
+- Docker Compose (included with Docker Desktop)
+- 4GB RAM minimum
+- Port 8000 and 5432 available
+
+### 1. Clone/Setup Project
 
 ```bash
-python3 --version  # Must be 3.9+
-pip3 --version
+# Clone the repository
+git clone <repository-url>
+cd pinelabs-payment-reconciliation
+
+# Copy example environment file
+cp .env.example .env
 ```
 
-### 2. Environment Setup
+### 2. Start with Docker Compose
 
 ```bash
-# Create and activate virtual environment
-python3 -m venv venv
-source venv/bin/activate
+# Build and start all services
+docker-compose up -d
 
-# Install dependencies
-pip install fastapi==0.104.1 sqlalchemy==2.0.23 pydantic==2.5.0 uvicorn[standard]==0.24.0 python-dotenv==1.0.0
+# View logs
+docker-compose logs -f
+
+# Verify services are running
+docker-compose ps
 ```
 
-### 3. Create Environment File
+### 3. Test the Application
 
 ```bash
-cat > .env << 'EOF'
-ENV=development
-DEBUG=True
-DATABASE_URL=sqlite:///./pinelabs_reconciliation.db
-API_HOST=0.0.0.0
-API_PORT=8000
-EOF
+# Health check
+curl http://localhost:8000/health
+
+# Open Swagger UI
+open http://localhost:8000/docs
+
+# Sample API call - Create event
+curl -X POST http://localhost:8000/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "merchant_id": "TEST001",
+    "transaction_id": "TXN12345",
+    "event_type": "initiated",
+    "amount": 1000,
+    "currency": "USD",
+    "timestamp": "2026-04-26T10:00:00Z"
+  }'
 ```
 
-### 4. Initialize Database
+### 4. Database Access
 
 ```bash
-python3 << 'EOF'
-from app.database import Base, engine
-Base.metadata.create_all(bind=engine)
-print("✓ Database initialized")
-EOF
+# Connect to PostgreSQL container
+docker-compose exec postgres psql -U postgres -d pinelabs
+
+# Or use PgAdmin UI (if configured)
+# Open http://localhost:5050
+# Default credentials in docker-compose.yml
 ```
 
-### 5. Start Server
+### 5. Stop Services
 
 ```bash
-python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
+# Stop all services
+docker-compose down
 
-**Verify:**
-```bash
-curl http://localhost:8000/health  # Health check
-curl http://localhost:8000/docs    # Swagger UI
+# Stop and remove volumes (warning: deletes data)
+docker-compose down -v
 ```
 
 ---
 
 ## API Endpoints
+
 
 ### Core Endpoints (5 Total)
 
@@ -361,6 +383,325 @@ See [API_DOCUMENTATION.md](API_DOCUMENTATION.md) for comprehensive endpoint docu
 
 ---
 
+## Docker Compose Deployment
+
+### docker-compose.yml Configuration
+
+```yaml
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/pinelabs
+      - ENV=production
+      - DEBUG=False
+    depends_on:
+      - postgres
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - pinelabs-network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: pinelabs
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - pinelabs-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+
+networks:
+  pinelabs-network:
+    driver: bridge
+```
+
+### Local Development with Docker Compose
+
+```bash
+# Start all services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f app
+
+# Stop services
+docker-compose down
+
+# Restart specific service
+docker-compose restart app
+
+# Scale app service (for load testing)
+docker-compose up -d --scale app=3
+```
+
+### Environment Variables for Docker Compose
+
+Create `.env` file:
+```env
+# Application
+ENV=production
+DEBUG=False
+API_HOST=0.0.0.0
+API_PORT=8000
+
+# Database
+DATABASE_URL=postgresql://postgres:password@postgres:5432/pinelabs
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=secure_password_here
+POSTGRES_DB=pinelabs
+
+# Logging
+LOG_LEVEL=INFO
+```
+
+---
+
+## AWS Deployment
+
+### Architecture Overview
+
+```
+Internet Gateway
+       ↓
+Application Load Balancer (ALB)
+       ↓
+ECS Service (Fargate)
+       ↓
+Amazon RDS PostgreSQL
+```
+
+### Prerequisites
+
+- AWS Account with appropriate IAM permissions
+- AWS CLI configured (`aws configure`)
+- ECR repository created
+- ECS cluster ready
+
+### Step 1: Build and Push to ECR
+
+```bash
+# Authenticate with ECR
+aws ecr get-login-password --region us-east-1 | \
+  docker login --username AWS --password-stdin <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com
+
+# Build image
+docker build -t pinelabs:2.0.0 .
+
+# Tag image for ECR
+docker tag pinelabs:2.0.0 <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/pinelabs:2.0.0
+
+# Push to ECR
+docker push <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/pinelabs:2.0.0
+```
+
+### Step 2: Create RDS PostgreSQL Instance
+
+```bash
+# Using AWS CLI
+aws rds create-db-instance \
+  --db-instance-identifier pinelabs-db \
+  --db-instance-class db.t3.micro \
+  --engine postgres \
+  --master-username postgres \
+  --master-user-password 'SecurePassword123!' \
+  --allocated-storage 20 \
+  --publicly-accessible false \
+  --region us-east-1
+```
+
+Or use AWS Console:
+1. Go to RDS → Create Database
+2. Choose PostgreSQL 15
+3. Template: Production
+4. Multi-AZ: Yes (for HA)
+5. Storage: 100GB with auto-scaling
+6. Create parameter group with UTF-8 encoding
+7. Save endpoint URL
+
+### Step 3: Create ECS Task Definition
+
+```json
+{
+  "family": "pinelabs-task",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "containerDefinitions": [
+    {
+      "name": "pinelabs",
+      "image": "<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/pinelabs:2.0.0",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "ENV",
+          "value": "production"
+        },
+        {
+          "name": "DEBUG",
+          "value": "False"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:<ACCOUNT_ID>:secret:pinelabs/db-url"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/pinelabs",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    }
+  ]
+}
+```
+
+### Step 4: Create CloudWatch Logs Group
+
+```bash
+aws logs create-log-group --log-group-name /ecs/pinelabs --region us-east-1
+aws logs put-retention-policy --log-group-name /ecs/pinelabs --retention-in-days 30
+```
+
+### Step 5: Create ECS Service
+
+```bash
+# Using AWS CLI
+aws ecs create-service \
+  --cluster pinelabs-cluster \
+  --service-name pinelabs-service \
+  --task-definition pinelabs-task:1 \
+  --desired-count 2 \
+  --launch-type FARGATE \
+  --load-balancers targetGroupArn=arn:aws:elasticloadbalancing:us-east-1:<ACCOUNT_ID>:targetgroup/pinelabs/abc123,containerName=pinelabs,containerPort=8000 \
+  --network-configuration "awsvpcConfiguration={subnets=[subnet-12345,subnet-67890],securityGroups=[sg-abcdef],assignPublicIp=DISABLED}" \
+  --region us-east-1
+```
+
+### Step 6: Configure Application Load Balancer (ALB)
+
+```bash
+# Create target group
+aws elbv2 create-target-group \
+  --name pinelabs-tg \
+  --protocol HTTP \
+  --port 8000 \
+  --vpc-id vpc-12345 \
+  --health-check-protocol HTTP \
+  --health-check-path /health \
+  --health-check-interval-seconds 30 \
+  --health-check-timeout-seconds 5 \
+  --healthy-threshold-count 2 \
+  --unhealthy-threshold-count 3
+
+# Create listener (ALB forwards port 80 to target group)
+aws elbv2 create-listener \
+  --load-balancer-arn arn:aws:elasticloadbalancing:us-east-1:<ACCOUNT_ID>:loadbalancer/app/pinelabs-alb/1234567890abcdef \
+  --protocol HTTP \
+  --port 80 \
+  --default-actions Type=forward,TargetGroupArn=arn:aws:elasticloadbalancing:us-east-1:<ACCOUNT_ID>:targetgroup/pinelabs-tg/abc123
+```
+
+### Step 7: Auto-Scaling Configuration
+
+```bash
+# Register scalable target
+aws application-autoscaling register-scalable-target \
+  --service-namespace ecs \
+  --resource-id service/pinelabs-cluster/pinelabs-service \
+  --scalable-dimension ecs:service:DesiredCount \
+  --min-capacity 2 \
+  --max-capacity 10
+
+# Create scaling policy (target CPU utilization 70%)
+aws application-autoscaling put-scaling-policy \
+  --policy-name pinelabs-cpu-scaling \
+  --service-namespace ecs \
+  --resource-id service/pinelabs-cluster/pinelabs-service \
+  --scalable-dimension ecs:service:DesiredCount \
+  --policy-type TargetTrackingScaling \
+  --target-tracking-scaling-policy-configuration \
+    "TargetValue=70.0,PredefinedMetricSpecification={PredefinedMetricType=ECSServiceAverageCPUUtilization},ScaleOutCooldown=300,ScaleInCooldown=300"
+```
+
+### Step 8: Store Database Credentials in Secrets Manager
+
+```bash
+aws secretsmanager create-secret \
+  --name pinelabs/db-url \
+  --secret-string "postgresql://postgres:SecurePassword123!@pinelabs-db.xxxxx.us-east-1.rds.amazonaws.com:5432/pinelabs" \
+  --region us-east-1
+```
+
+### Monitoring and Logging
+
+```bash
+# View CloudWatch logs
+aws logs tail /ecs/pinelabs --follow
+
+# Get ECS service status
+aws ecs describe-services \
+  --cluster pinelabs-cluster \
+  --services pinelabs-service
+
+# Get task details
+aws ecs list-tasks \
+  --cluster pinelabs-cluster \
+  --service-name pinelabs-service
+```
+
+### AWS Cost Estimation
+
+| Component | Size | Monthly Cost |
+|-----------|------|-------------|
+| ECS Fargate (2 tasks, 0.25 CPU, 512MB) | 2 × 24h | ~$15 |
+| RDS PostgreSQL db.t3.micro | 20GB | ~$20 |
+| ALB | 1 | ~$20 |
+| CloudWatch Logs (30GB/month) | 30GB | ~$15 |
+| Data Transfer | 100GB/month | ~$5 |
+| **Total** | | **~$75/month** |
+
+---
+
 ## Production Deployment
 
 ### Docker Deployment
@@ -376,43 +717,87 @@ docker-compose up -d
 curl http://localhost:8000/health
 ```
 
-### Cloud Platforms
+### Cloud Platforms Comparison
 
-Supported deployment platforms:
-- **Railway.app** - 1-click deployment
-- **Render** - Auto-scaling with PostgreSQL
-- **AWS ECS** - Container orchestration
-- **Google Cloud Run** - Serverless containers
-
-See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed instructions for each platform.
+| Platform | Ease | Scaling | Cost | Best For |
+|----------|------|---------|------|----------|
+| Docker Compose (Local) | ⭐⭐⭐⭐⭐ | Manual | Free | Development |
+| AWS ECS | ⭐⭐⭐ | Auto | ~$75/mo | Production, High Traffic |
+| Google Cloud Run | ⭐⭐⭐⭐ | Full Auto | Pay-per-use | Spiky Traffic |
+| Railway.app | ⭐⭐⭐⭐⭐ | Auto | Varies | Quick Deployment |
 
 ---
 
 ## Troubleshooting
 
-### Common Issues
+### Docker Compose Issues
 
-**"Address already in use" on port 8000**
+**"Port 8000 already in use"**
 ```bash
-lsof -i :8000 | xargs kill -9
+# Find and kill process on port 8000
+lsof -i :8000
+kill -9 <PID>
+
+# Or use different port
+docker-compose.yml: change "8000:8000" to "8001:8000"
 ```
 
-**"No module named 'fastapi'"**
+**"Cannot connect to database"**
 ```bash
-source venv/bin/activate
-pip install -r requirements.txt
-```
+# Check if postgres container is running
+docker-compose ps
 
-**Database connection failed**
-```bash
-# Check DATABASE_URL format
+# Check postgres logs
+docker-compose logs postgres
+
+# Verify DATABASE_URL format
 echo $DATABASE_URL
-
-# Verify database is running
-psql -h localhost -U user -d dbname
 ```
 
-For more troubleshooting: See [DEPLOYMENT.md#troubleshooting](DEPLOYMENT.md#troubleshooting)
+**"Health check failing"**
+```bash
+# Check app logs
+docker-compose logs app
+
+# Test manually
+curl -v http://localhost:8000/health
+```
+
+### AWS Deployment Issues
+
+**ECS Task stuck in PROVISIONING**
+```bash
+# Check task logs in CloudWatch
+aws logs tail /ecs/pinelabs --follow
+
+# Describe task for error details
+aws ecs describe-tasks --cluster pinelabs-cluster --tasks <TASK_ARN>
+```
+
+**Database connection timeout**
+```bash
+# Verify RDS security group allows ECS security group
+# Check RDS endpoint is correct in Secrets Manager
+aws secretsmanager get-secret-value --secret-id pinelabs/db-url
+
+# Test connectivity from ECS task
+# (Place a debug container in same VPC)
+```
+
+**High memory usage in ECS**
+```bash
+# Check CloudWatch metrics
+aws cloudwatch get-metric-statistics \
+  --namespace AWS/ECS \
+  --metric-name MemoryUtilization \
+  --dimensions Name=ServiceName,Value=pinelabs-service \
+  --start-time 2026-04-20T00:00:00Z \
+  --end-time 2026-04-26T23:59:59Z \
+  --period 3600 \
+  --statistics Average
+
+# Increase task memory in ECS task definition
+```
 
 ---
 
@@ -448,215 +833,116 @@ For more troubleshooting: See [DEPLOYMENT.md#troubleshooting](DEPLOYMENT.md#trou
 
 ---
 
-## Code Quality & Testing
-
-### Type Hints & Validation
-
-All functions include type hints and Pydantic validation:
-```python
-def get_transactions(
-    db: Session,
-    merchant_id: Optional[str] = None,
-    status: Optional[str] = None,
-    page: int = 1,
-    size: int = 20
-) -> Dict[str, Any]:
-    # Database queries with proper filtering
-    ...
-```
-
-### Error Handling
-
-Comprehensive error handling with meaningful messages:
-```python
-@app.exception_handler(ValueError)
-async def value_error_handler(request, exc):
-    return JSONResponse(
-        status_code=400,
-        content={"error": str(exc)}
-    )
-```
-
----
-
 ## Support & Maintenance
 
-### Get Help
 
-1. Check [Troubleshooting](#troubleshooting) section
-2. Review [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
-3. Check [DEPLOYMENT.md](DEPLOYMENT.md) for environment setup
-4. Review [ARCHITECTURE.md](ARCHITECTURE.md) for system design
+### Getting Help
+
+1. **Docker Compose Issues:** Check [Troubleshooting - Docker Compose Issues](#docker-compose-issues)
+2. **AWS Deployment Issues:** Check [Troubleshooting - AWS Deployment Issues](#aws-deployment-issues)
+3. **API Documentation:** See [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
+4. **Architecture Details:** See [ARCHITECTURE.md](ARCHITECTURE.md)
+
+### Monitoring & Health Checks
+
+```bash
+# Docker Compose - Check all services
+docker-compose ps
+
+# View application logs
+docker-compose logs -f app
+
+# Health check endpoint
+curl http://localhost:8000/health
+
+# AWS - Check ECS service status
+aws ecs describe-services \
+  --cluster pinelabs-cluster \
+  --services pinelabs-service
+
+# AWS - View CloudWatch logs
+aws logs tail /ecs/pinelabs --follow --max-items 10
+```
+
+### Backup & Recovery
+
+**Docker Compose Database Backup:**
+```bash
+# Backup PostgreSQL
+docker-compose exec postgres pg_dump -U postgres pinelabs > backup.sql
+
+# Restore from backup
+docker-compose exec -T postgres psql -U postgres pinelabs < backup.sql
+```
+
+**AWS RDS Backup:**
+```bash
+# Create manual snapshot
+aws rds create-db-snapshot \
+  --db-instance-identifier pinelabs-db \
+  --db-snapshot-identifier pinelabs-backup-2026-04-26
+
+# Restore from snapshot
+aws rds restore-db-instance-from-db-snapshot \
+  --db-instance-identifier pinelabs-db-restored \
+  --db-snapshot-identifier pinelabs-backup-2026-04-26
+```
+
+### Performance Tuning
+
+| Metric | Current | Optimization |
+|--------|---------|--------------|
+| Response Time | 45ms avg | Add Redis caching for summaries |
+| Database | Single instance | Enable read replicas in AWS RDS |
+| Scaling | Manual | Implement auto-scaling (done in AWS) |
+| Memory | 512MB (Fargate) | Monitor with CloudWatch |
 
 ### Future Enhancements
 
 - [ ] JWT authentication for API security
-- [ ] Redis caching for frequently accessed data
-- [ ] Event streaming with Kafka for real-time updates
-- [ ] Machine learning for anomaly detection
+- [ ] Redis caching for frequently accessed reconciliation queries
+- [ ] Event streaming with AWS SQS/SNS for real-time updates
+- [ ] Machine learning for anomaly pattern detection
 - [ ] GraphQL API layer
-- [ ] Web dashboard for visualization
-- [ ] CSV export for reconciliation reports
-- [ ] Webhook notifications
+- [ ] Web dashboard for transaction visualization
+- [ ] CSV/Excel export for reconciliation reports
+- [ ] Webhook notifications for critical discrepancies
+- [ ] API rate limiting and quota management
+- [ ] Multi-region deployment support
+
+---
 
 ---
 
 ## Company Information
 
+
 **Company:** Pine Labs  
 **Product:** Payment Reconciliation System  
 **Version:** 2.0.0  
 **Status:** Production-Ready  
-**Last Updated:** April 26, 2026
+**Last Updated:** April 26, 2026  
+**Documentation:** All deployment options covered (Docker Compose, AWS)  
 
 ---
 
-**Get Started:** Follow [Quick Start](#quick-start) | **Deploy:** See [DEPLOYMENT.md](DEPLOYMENT.md) | **API Docs:** See [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
+## Quick Reference
 
-Returns payment with complete settlement log history.
+| Task | Command |
+|------|---------|
+| **Start Local** | `docker-compose up -d` |
+| **View Logs** | `docker-compose logs -f app` |
+| **Stop Services** | `docker-compose down` |
+| **Deploy to AWS** | Follow [AWS Deployment](#aws-deployment) section |
+| **Check Health** | `curl http://localhost:8000/health` |
+| **Access Swagger** | `http://localhost:8000/docs` |
+| **Database Access** | `docker-compose exec postgres psql -U postgres -d pinelabs` |
 
-### Reconciliation Report
-```http
-GET /reconciliation/report
-```
+---
 
-Returns aggregated settlement data grouped by partner, date, and payment state.
-
-**Response:**
-```json
-[
-  {
-    "partner_code": "PARTNER001",
-    "report_date": "2026-04-25",
-    "payment_state": "settled",
-    "txn_count": 5,
-    "settlement_amount": 25000.0
-  }
-]
-```
-
-### Detect Payment Anomalies
-```http
-GET /anomalies
-```
-
-Identifies payment state inconsistencies (e.g., settled with failed attempt, unresolved settlement).
-
-**Response:**
-```json
-[
-  {
-    "payment_ref": "pr-001",
-    "anomaly_type": "Unresolved Settlement",
-    "anomaly_details": "Payment processed but not settled. Latest log: processed"
-  }
-]
-```
-
-## Data Model
-
-### Partner
-- `partner_code` (string, PK): Unique partner identifier
-- `partner_name` (string): Partner display name
-- **Relationships:** payments (1:N)
-
-### Payment
-- `payment_ref` (string, PK): Unique payment reference
-- `partner_code` (string, FK): Associated partner
-- `txn_amount` (float): Transaction amount
-- `txn_currency` (string): Currency code (INR, USD, EUR, etc.)
-- `payment_state` (string): Current state - initiated|processed|failed|settled
-- `created_ts` (datetime): Creation timestamp
-- `updated_ts` (datetime): Last update timestamp
-- **Relationships:** partner (N:1), settlement_logs (1:N)
-
-### SettlementLog
-- `log_id` (string, PK): Unique log identifier
-- `log_type` (string): Log type - initiated|processed|failed|settled
-- `payment_ref` (string, FK): Associated payment
-- `partner_code` (string): Partner code
-- `txn_amount` (float): Transaction amount
-- `txn_currency` (string): Currency code
-- `log_ts` (datetime): Log timestamp
-- **Relationships:** payment (N:1)
-
-## Key Features
-
-✅ **Idempotent Settlement Logging** - Duplicate logs handled gracefully  
-✅ **Payment State Tracking** - Complete audit trail via settlement logs  
-✅ **Advanced Filtering** - Partner, state, date range queries  
-✅ **Pagination & Sorting** - Efficient large dataset handling  
-✅ **Reconciliation Reporting** - Aggregated partner settlement views  
-✅ **Anomaly Detection** - Automated payment state inconsistency detection  
-✅ **Multi-Currency Support** - INR, USD, EUR, GBP, etc.  
-✅ **Lightweight Architecture** - Minimal dependencies, fast startup  
-
-## Configuration
-
-Set via environment variables:
-
-```bash
-DATABASE_URL=sqlite:///./pinelabs_reconciliation.db  # SQLite default
-# For production MSSQL:
-# DATABASE_URL=mssql+pymssql://user:password@server:1433/pinelabs_db
-DEBUG=False
-```
-
-## Testing
-
-Run comprehensive edge case test suite:
-
-```bash
-python3 test_edge_cases.py
-```
-
-**32 test cases covering:**
-- Settlement log ingestion (idempotency, amounts, currencies, state transitions)
-- Payment listing (filtering, pagination, sorting, validation)
-- Payment detail retrieval (single record, 404 handling, log history)
-- Reconciliation reporting (structure, aggregation)
-- Anomaly detection (unresolved settlements, state inconsistencies)
-
-## Project Structure
-
-```
-.
-├── app/
-│   ├── main.py           # FastAPI endpoints
-│   ├── models.py         # SQLAlchemy ORM
-│   ├── schemas.py        # Pydantic validation
-│   ├── crud.py           # Database operations
-│   ├── database.py       # DB connection
-│   └── __init__.py
-├── test_edge_cases.py    # Comprehensive test suite
-├── requirements.txt      # Dependencies
-├── Dockerfile            # Container build
-├── .env.example          # Config template
-└── README.md             # This file
-```
-
-## Deployment
-
-### Docker
-```bash
-docker build -t pinelabs-reconciliation .
-docker run -p 8000:8000 -e DATABASE_URL=<mssql_url> pinelabs-reconciliation
-```
-
-### Production MSSQL
-Update `DATABASE_URL` environment variable:
-```
-mssql+pymssql://user:password@hostname:1433/database_name
-```
-
-## Dependencies
-
-- fastapi==0.104.1
-- uvicorn==0.24.0
-- sqlalchemy==2.0.23
-- pymssql==2.2.11
-- pydantic==2.5.0
+**Get Started:** Follow [Quick Start with Docker Compose](#quick-start-with-docker-compose) | **Deploy to AWS:** See [AWS Deployment](#aws-deployment) | **API Docs:** See [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
 
 ## License
 
 Proprietary - Pine Labs
+
