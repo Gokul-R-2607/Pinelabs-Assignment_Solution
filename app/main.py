@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from . import crud, models, schemas, database
 from typing import List, Optional
@@ -9,6 +9,14 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Pine Labs Payment Reconciliation", version="2.0.0")
+
+# Middleware to handle ngrok browser warning bypass
+@app.middleware("http")
+async def skip_ngrok_warning(request: Request, call_next):
+    """Add ngrok-skip-browser-warning header to bypass ngrok browser warning page"""
+    response = await call_next(request)
+    response.headers["ngrok-skip-browser-warning"] = "69420"
+    return response
 
 @app.on_event("startup")
 def init_db():
